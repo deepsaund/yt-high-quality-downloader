@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>YouTube Highest-Quality Downloader</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+    <style>
+      body {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #0f172a;
+        color: #f8fafc;
+      }
+      main {
+        width: min(500px, 90vw);
+        background: rgba(15, 23, 42, 0.85);
+        padding: 2.5rem;
+        border-radius: 1.25rem;
+        box-shadow: 0 24px 72px rgba(15, 23, 42, 0.7);
+      }
+      h1 {
+        font-size: 1.85rem;
+        margin-bottom: 0.25rem;
+        text-align: center;
+      }
+      p.lead {
+        text-align: center;
+        margin-bottom: 2rem;
+        color: #cbd5f5;
+      }
+      form {
+        display: grid;
+        gap: 1.5rem;
+      }
+      .status {
+        min-height: 2.5rem;
+        display: none;
+        padding: 0.75rem 1rem;
+        border-radius: 0.75rem;
+        background: rgba(16, 185, 129, 0.08);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        color: #bbf7d0;
+      }
+      .status.error {
+        background: rgba(248, 113, 113, 0.12);
+        border-color: rgba(248, 113, 113, 0.4);
+        color: #fecaca;
+      }
+      .progress {
+        display: none;
+        width: 100%;
+        height: 10px;
+        background: rgba(148, 163, 184, 0.25);
+        border-radius: 999px;
+        overflow: hidden;
+        margin-top: 1rem;
+      }
+      .progress .bar {
+        height: 100%;
+        width: 0;
+        background: linear-gradient(90deg, #38bdf8, #22d3ee, #34d399);
+        transition: width 0.2s ease-out;
+      }
+      footer {
+        margin-top: 2rem;
+        text-align: center;
+        color: #94a3b8;
+        font-size: 0.85rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>YT High-Quality Downloader</h1>
+      <p class="lead">Paste a YouTube URL to download the best available video+audio as MP4.</p>
+      <form id="download-form">
+        <label for="url">YouTube URL</label>
+        <input type="url" id="url" name="url" placeholder="https://www.youtube.com/watch?v=..." required />
+        <button type="submit" class="contrast">Download</button>
+      </form>
+      <div id="progress" class="progress" aria-hidden="true">
+        <div id="progress-bar" class="bar"></div>
+      </div>
+      <div id="status" class="status"></div>
+      <footer>Requires yt-dlp &amp; ffmpeg installed on the server.</footer>
+    </main>
+
+    <script>
+      const form = document.getElementById("download-form");
+      const statusEl = document.getElementById("status");
+      const progressEl = document.getElementById("progress");
+      const progressBarEl = document.getElementById("progress-bar");
+      const formControls = form.querySelectorAll("input, button");
+      let progressInterval;
+
+      function showStatus(message, isError = false) {
+        statusEl.textContent = message;
+        statusEl.classList.toggle("error", isError);
+        statusEl.style.display = "block";
+      }
+
+      function hideStatus() {
+        statusEl.style.display = "none";
+        statusEl.textContent = "";
+        statusEl.classList.remove("error");
+      }
+
+      function setFormDisabled(isDisabled) {
+        formControls.forEach((el) => {
+          el.disabled = isDisabled;
+        });
+      }
+
+      function startProgress() {
+        clearInterval(progressInterval);
+        progressBarEl.style.width = "0%";
+        progressEl.style.display = "block";
+        progressEl.setAttribute("aria-hidden", "false");
+        let pct = 0;
+        progressInterval = setInterval(() => {
+          pct = pct >= 95 ? 60 : pct + 5;
+          progressBarEl.style.width = `${pct}%`;
+        }, 200);
+      }
+
+      function stopProgress(success = false) {
+        clearInterval(progressInterval);
+        if (success) {
+          progressBarEl.style.width = "100%";
+        }
+        setTimeout(() => {
+          progressEl.style.display = "none";
+          progressEl.setAttribute("aria-hidden", "true");
+          progressBarEl.style.width = "0%";
+        }, success ? 500 : 0);
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        hideStatus();
+        const formData = new FormData(form);
+        setFormDisabled(true);
+        startProgress();
+        showStatus("Fetching the highest-quality streams...");
+
+        try {
+          const response = await fetch("/download", {
+            method: "POST",
+            body: formData,
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || "Download failed. Please try again.");
+          }
+
+          const disposition = response.headers.get("Content-Disposition") || "attachment; filename=video.mp4";
+          const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
+          const filename = filenameMatch ? filenameMatch[1] : "video.mp4";
+
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const anchor = document.createElement("a");
+          anchor.href = url;
+          anchor.download = filename;
+          document.body.appendChild(anchor);
+          anchor.click();
+          anchor.remove();
+          window.URL.revokeObjectURL(url);
+
+          stopProgress(true);
+          showStatus("Download started. Check your browser's downloads list.");
+        } catch (error) {
+          console.error(error);
+          stopProgress();
+          showStatus(error.message, true);
+        }
+
+        setFormDisabled(false);
+      });
+    </script>
+  </body>
+</html>
