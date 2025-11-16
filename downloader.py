@@ -8,7 +8,11 @@ yt-dlp for muxing). The output is stored in the local ``downloads`` directory.
 from __future__ import annotations
 
 import argparse
+import base64
+import os
 import shutil
+import tempfile
+from binascii import Error as BinasciiError
 from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple
 
@@ -26,6 +30,41 @@ FAST_DOWNLOAD_OPTS: Dict[str, object] = {
     "fragment_retries": 10,
     "http_chunk_size": 10 * 1024 * 1024,  # 10MB chunks
 }
+
+_COOKIES_FILE: Optional[Path] = None
+
+
+def _resolve_cookies_file() -> Optional[Path]:
+    global _COOKIES_FILE
+    if _COOKIES_FILE and _COOKIES_FILE.exists():
+        return _COOKIES_FILE
+
+    env_path = os.getenv("YTDLP_COOKIES_PATH")
+    if env_path:
+        candidate = Path(env_path)
+        if candidate.exists():
+            _COOKIES_FILE = candidate
+            return _COOKIES_FILE
+
+    env_b64 = os.getenv("YTDLP_COOKIES_B64")
+    if env_b64:
+        try:
+            data = base64.b64decode(env_b64)
+        except (BinasciiError, ValueError):
+            return None
+
+        temp_dir = Path(tempfile.gettempdir())
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        temp_path = temp_dir / "yt_cookies.txt"
+        try:
+            temp_path.write_bytes(data)
+        except OSError:
+            return None
+
+        _COOKIES_FILE = temp_path
+        return _COOKIES_FILE
+
+    return None
 
 
 def _find_winget_ffmpeg() -> Tuple[Optional[Path], Optional[Path]]:
@@ -117,6 +156,10 @@ def build_downloader(
         "no_warnings": True,
         "no_color": True,
     }
+
+    cookies_file = _resolve_cookies_file()
+    if cookies_file:
+        ydl_opts["cookiefile"] = str(cookies_file)
 
     ydl_opts.update(FAST_DOWNLOAD_OPTS)
 
